@@ -1,4 +1,4 @@
-# PISCES
+# 🪝PISCES
 Code for the paper "Precise In-Parameter Concept Erasure in Large Language Models" ([link](https://arxiv.org/pdf/2505.22586)).
 
 ### Files
