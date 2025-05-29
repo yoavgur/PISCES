@@ -1,7 +1,8 @@
 # 🪝PISCES
 Code for the paper "Precise In-Parameter Concept Erasure in Large Language Models" ([link](https://arxiv.org/pdf/2505.22586)).
 
-![Concept Erasure Fig1 (1)-1](https://github.com/user-attachments/assets/5f36b9a2-fe02-42f3-b514-7b17405de956)
+<img width="600" alt="Screenshot 2025-05-29 at 14 16 35" src="[https://github.com/user-attachments/assets/434fcccb-78ae-49b9-ac4b-0d9306a618ba](https://github.com/user-attachments/assets/5f36b9a2-fe02-42f3-b514-7b17405de956)" />
+
 
 <img width="1460" alt="Screenshot 2025-05-29 at 14 16 35" src="https://github.com/user-attachments/assets/434fcccb-78ae-49b9-ac4b-0d9306a618ba" />
 
