@@ -42,3 +42,29 @@ def test_format_candidates_without_catalog_is_empty_tokens():
     selected = pd.DataFrame([{"layer": 2, "feature_id": 7, "score": 1, "sign": -1}])
     out = fs._format_candidates(selected, None, "token")
     assert out.iloc[0]["top_tokens"] == []
+
+
+def test_format_candidates_carries_frac_firing_when_present():
+    """Contrastive candidates should include frac_firing_target/control if present."""
+    catalog = [fs.LayerLens(t=[["x"], ["agree", "yes"], ["z"]], b=[["no"], ["disagree"], ["w"]])]
+    selected = pd.DataFrame([
+        {"layer": 0, "feature_id": 1, "score": 88, "sign": -1,
+         "frac_firing_target": 0.5, "frac_firing_control": 0.1},
+    ])
+    out = fs._format_candidates(selected, catalog, "contrastive")
+    row = out.iloc[0]
+    # Should have both firing columns
+    assert "frac_firing_target" in out.columns
+    assert "frac_firing_control" in out.columns
+    assert row["frac_firing_target"] == 0.5
+    assert row["frac_firing_control"] == 0.1
+
+
+def test_format_candidates_no_firing_columns_when_absent():
+    """Non-contrastive candidates (token search) should not have firing columns."""
+    selected = pd.DataFrame([{"layer": 2, "feature_id": 7, "score": 1, "sign": -1}])
+    out = fs._format_candidates(selected, None, "token")
+    # Should have exactly CANDIDATE_COLUMNS, no firing columns
+    assert list(out.columns) == fs.CANDIDATE_COLUMNS
+    assert "frac_firing_target" not in out.columns
+    assert "frac_firing_control" not in out.columns

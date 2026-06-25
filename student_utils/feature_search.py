@@ -42,9 +42,17 @@ def default_contrastive_selection(merged, top_k=100, tau=2.0, eps=1e-6):
 
 
 def _format_candidates(selected, catalog, source_method, tokens=None, top_k_tokens=20):
-    """Build the standard candidate DataFrame, pulling readable tokens from the catalog."""
+    """Build the standard candidate DataFrame, pulling readable tokens from the catalog.
+
+    If selected contains frac_firing_target and frac_firing_control columns, they are
+    appended to the output (for contrastive search). Otherwise, only CANDIDATE_COLUMNS.
+    """
     rows = []
-    for _, r in selected.iterrows():
+    firing_cols = {}  # collect firing columns if present
+    has_firing_target = "frac_firing_target" in selected.columns
+    has_firing_control = "frac_firing_control" in selected.columns
+
+    for idx, r in selected.iterrows():
         layer = int(r["layer"]); fid = int(r["feature_id"])
         top, bot = [], []
         if catalog is not None and layer < len(catalog) and catalog[layer] is not None:
@@ -59,7 +67,22 @@ def _format_candidates(selected, catalog, source_method, tokens=None, top_k_toke
             "matched_tokens": matched,
             "source_method": source_method, "notes": "",
         })
-    return pd.DataFrame(rows, columns=CANDIDATE_COLUMNS)
+
+        # Collect firing columns if both are present
+        if has_firing_target and has_firing_control:
+            firing_cols[idx] = {
+                "frac_firing_target": r.get("frac_firing_target"),
+                "frac_firing_control": r.get("frac_firing_control"),
+            }
+
+    df = pd.DataFrame(rows, columns=CANDIDATE_COLUMNS)
+
+    # Append firing columns if they were present in selected
+    if has_firing_target and has_firing_control:
+        df["frac_firing_target"] = [firing_cols[i]["frac_firing_target"] for i in range(len(df))]
+        df["frac_firing_control"] = [firing_cols[i]["frac_firing_control"] for i in range(len(df))]
+
+    return df
 
 
 def show_feature_candidates(df, max_rows=50):
