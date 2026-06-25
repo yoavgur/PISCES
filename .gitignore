@@ -172,3 +172,9 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Student scaffolding
+features/vocab_proj_catalog_*.pkl
+runs/student_experiments/*
+!runs/student_experiments/.gitkeep
+.DS_Store
