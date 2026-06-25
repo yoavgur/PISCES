@@ -33,3 +33,10 @@ Please cite as:
 
 
 Feel free to contact if you have any thoughts, questions or suggestions :)
+
+### Student research scaffolding
+
+A notebook-first scaffolding for student projects extending PISCES to behavior
+suppression lives on the `students/base` branch (and per-student `students/gaia`,
+`students/itay`). See [`notebooks/README.md`](notebooks/README.md) and
+[`student_utils/`](student_utils/). The design and plan are under `docs/superpowers/`.
