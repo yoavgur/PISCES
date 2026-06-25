@@ -1,9 +1,14 @@
+import os
 import re
 import time
 from transformers import PreTrainedModel
 
-from gcg_multiple import run as run_gcg
-from gcg_multiple import GCGConfig
+try:
+    from gcg_multiple import run as run_gcg
+    from gcg_multiple import GCGConfig
+except ImportError:  # optional: only needed for get_gcg_suffix
+    run_gcg = None
+    GCGConfig = None
 
 from tqdm import tqdm as _tqdm
 from tqdm import tqdm as Pbar
@@ -18,13 +23,29 @@ import numpy as np
 from tqdm import tqdm
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
-from openai import OpenAI
+
+try:
+    from openai import OpenAI
+except ImportError:  # optional: OpenAIEvaluator is unused (asserts False)
+    OpenAI = None
+
 from transformer_lens import HookedTransformer
 from dataclasses_json import DataClassJsonMixin
-from peft.tuners.lora import LoraConfig
-from peft import get_peft_model
+
+try:
+    from peft.tuners.lora import LoraConfig
+    from peft import get_peft_model
+except ImportError:  # optional: only needed for relearning evals
+    LoraConfig = None
+    get_peft_model = None
+
 from torch.optim import AdamW
-from google import generativeai as gai
+
+try:
+    from google import generativeai as gai
+except ImportError:  # optional: only needed for GeminiEvaluator
+    gai = None
+
 import gc
 
 ################### Classes ###################
@@ -505,6 +526,12 @@ class OpenAIEvaluator(AbstractEvaluator):
 
 class GeminiEvaluator(AbstractEvaluator):
     def __init__(self, model_name: str = "models/gemini-2.0-flash"):
+        if gai is None:
+            raise ImportError(
+                "GeminiEvaluator requires google-generativeai. "
+                "Install it (`pip install google-generativeai`) and set GEMINI_API_KEY. "
+                "The student notebooks do not need this by default."
+            )
         gai.configure(api_key=os.getenv("GEMINI_API_KEY"))
         self.model = gai.GenerativeModel(model_name)
 

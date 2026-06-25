@@ -87,7 +87,7 @@ def get_feature_effect(model, features: list[Feature], signs, forget_set: list[s
 
         for feature in features:
             f_concept = Concept(name=f"Feature {feature.id}", k=0.9, value=16, features=[feature])
-            with unlearn_concept(model, f_concept, full=True, signed=True, signs=signs, linscale="gemma" in model.cfg.tokenizer_name.lower()):
+            with unlearn_concept(model, f_concept, signs=signs, linscale="gemma" in model.cfg.tokenizer_name.lower()):
                 logits = model(batch).softmax(dim=-1)
 
             diff = logits[:,:,pos_toks_ids] - clean_logits[:,:,pos_toks_ids]
@@ -158,7 +158,7 @@ def filter_features_by_mmlu(model, features: list[Feature], signs: torch.Tensor,
 
     for feature in features:
         concept = Concept(name=f"Feature {feature.id}", k=0.9, value=16, features=[feature])
-        with unlearn_concept(model, concept, full=True, signed=True, signs=signs, linscale="gemma" in model.cfg.tokenizer_name.lower()):
+        with unlearn_concept(model, concept, signs=signs, linscale="gemma" in model.cfg.tokenizer_name.lower()):
             mmlu_res, _ = evaluate_mmlu(model, True, indices=mmlu_indices, evaluation_type=MCQAEvaluations.RANK_BASED, batch_size=3, limit=1000, verbose=False)
 
             if mmlu_res.score_from_total < target - max_deviation:
@@ -265,7 +265,7 @@ def find_hps(
 
         pbar.set_description(f"hps: {value}/{k} | best_harmonic: {best_harmonic:.3f} best_hps: {best_hps} [acc={best_acc:.2f}, mmlu={best_mmlu:.3f}, simdom={best_sim:.2f}]")
 
-        with unlearn_concept(model, concept, full=True, signed=True, signs=signs, linscale=linscale):
+        with unlearn_concept(model, concept, signs=signs, linscale=linscale):
             wrapped = TransformerLensModel(model)
             res = evaluate_open_ended(wrapped, evaluator, oes, verbose=False, quit_thresh=max_acc)
             concept_results["accuracy"] = res.score_from_total
