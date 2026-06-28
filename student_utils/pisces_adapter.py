@@ -1,38 +1,33 @@
-"""Adapter between the student-facing feature-set JSON format and PISCES.
+"""Adapter between the student-facing feature-set format and PISCES.
 
-Pure helpers (validation, sign mapping, random control, IO) import only stdlib.
+Pure helpers (validation, sign mapping, random control) import only stdlib.
 editor.* is imported lazily inside the functions that build/apply edits, so this
 module imports without torch.
 
-Feature-set format:
+Feature-set format (a plain dict you write inline in the notebook):
     {"name": str, "description": str,
      "features": [{"layer": int, "feature_id": int, "sign": -1|1, "why": str}]}
-sign == -1 => suppress => editor.Feature(neg=True).
+sign == -1 => suppress the feature => editor.Feature(neg=True).
 """
-import json
 import random
 from contextlib import contextmanager
-from pathlib import Path
 
 REQUIRED_FEATURE_KEYS = ("layer", "feature_id", "sign")
 
 
-def load_feature_set(path) -> dict:
-    with Path(path).open("r", encoding="utf-8") as f:
-        fs = json.load(f)
-    validate_feature_set(fs)
-    return fs
-
-
-def save_feature_set(feature_set, path) -> None:
-    validate_feature_set(feature_set)
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(feature_set, f, ensure_ascii=False, indent=2)
-
-
 def validate_feature_set(feature_set) -> None:
+    """Check a feature-set dict is well-formed; raise ValueError with a clear message.
+
+    Validates that:
+      - `feature_set` is a dict with a 'features' list (use [] for an empty
+        placeholder while you are still searching);
+      - each feature is a dict containing 'layer' (int), 'feature_id' (int), and
+        'sign' (exactly -1 for suppress or 1).
+
+    Does NOT check that layer/feature_id are in range for the model -- that is up
+    to you. Returns None; call it for its side effect (raising) before building an
+    edit. 'why' is optional but recommended (record why you picked each feature).
+    """
     if not isinstance(feature_set, dict):
         raise ValueError(f"feature set must be a dict, got {type(feature_set).__name__}")
     if "features" not in feature_set or not isinstance(feature_set["features"], list):
@@ -52,23 +47,33 @@ def validate_feature_set(feature_set) -> None:
 
 
 def feature_dict_to_args(fd) -> tuple:
-    """(layer, feature_id, neg) where neg = (sign == -1)."""
+    """Map one feature dict to (layer, feature_id, neg), where neg = (sign == -1)."""
     return (fd["layer"], fd["feature_id"], fd["sign"] == -1)
 
 
 def feature_dicts_to_pisces_concept(feature_set, *, tau, mu, name=None):
-    """Build an editor.Concept from a feature set. Imports editor lazily."""
+    """Build an editor.Concept from a feature set (imports editor lazily).
+
+    tau -> Concept.k (firing threshold), mu -> Concept.value (edit strength).
+    Raises if the feature set is empty (nothing to edit).
+    """
     validate_feature_set(feature_set)
     from editor import Feature, Concept  # lazy: needs torch
     features = [Feature(layer=l, id=fid, neg=neg)
                 for (l, fid, neg) in (feature_dict_to_args(fd) for fd in feature_set["features"])]
     if not features:
-        raise ValueError("cannot build a Concept from an empty feature set (placeholder)")
+        raise ValueError("cannot build a Concept from an empty feature set (add features first)")
     return Concept(name=name or feature_set.get("name", "concept"), k=tau, value=mu, features=features)
 
 
 def make_random_feature_set_like(feature_set, *, n_features=None, seed=0, n_sae_features=16384) -> dict:
-    """A control feature set: same layers/signs, random feature ids in [0, n_sae_features)."""
+    """Build a random-feature CONTROL with the same layers/signs as `feature_set`.
+
+    Replaces each feature's id with a random id in [0, n_sae_features). Running the
+    same edit config on this control tells you whether your effect is specific to
+    the features you chose: if random features change behaviour just as much, your
+    selection is not doing the work. Deterministic given `seed`.
+    """
     validate_feature_set(feature_set)
     rng = random.Random(seed)
     src = feature_set["features"]
@@ -88,11 +93,18 @@ def make_random_feature_set_like(feature_set, *, n_features=None, seed=0, n_sae_
 
 @contextmanager
 def temporary_pisces_edit(model, feature_set, edit_config):
-    """Apply a PISCES edit for the duration of the `with` block, then auto-revert.
+    """Apply a PISCES suppression edit for the duration of the `with` block, then revert.
 
-    Thin wrapper over editor.unlearn_concept (which already snapshots/restores
-    W_out). edit_config keys: tau, mu, linscale(=True), use_signs(=False),
-    signs(=None), description.
+    Thin wrapper over editor.unlearn_concept, which snapshots the MLP output
+    weights on enter and restores them on exit -- so generations inside the block
+    are edited and everything after the block is back to baseline.
+
+    edit_config keys:
+      tau       -> Concept.k  (firing threshold)
+      mu        -> Concept.value (edit strength)
+      linscale  -> True for gemma (default True)
+      use_signs -> whether to pass activation signs (default False)
+      signs     -> precomputed signs if use_signs is True
     """
     from editor import unlearn_concept  # lazy: needs torch
     concept = feature_dicts_to_pisces_concept(

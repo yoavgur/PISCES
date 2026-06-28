@@ -20,6 +20,11 @@ def generate_many(tm, prompts, max_new_tokens=200, temperature=0.0, batch_size=1
 
 
 def make_generation_dataframe(prompts, responses, ids=None, metadata=None):
+    """Build a DataFrame with columns id, prompt, response (plus any metadata).
+
+    metadata values that are lists of the right length become per-row columns;
+    scalars are broadcast to every row.
+    """
     if len(prompts) != len(responses):
         raise ValueError(f"prompts ({len(prompts)}) and responses ({len(responses)}) length mismatch")
     ids = ids if ids is not None else [str(i) for i in range(len(prompts))]
@@ -34,6 +39,7 @@ def make_generation_dataframe(prompts, responses, ids=None, metadata=None):
 
 
 def compare_generations_dataframe(prompts, baseline_responses, edited_responses, ids=None):
+    """Build a baseline-vs-edited table with a boolean 'changed' column per prompt."""
     n = len(prompts)
     if not (len(baseline_responses) == len(edited_responses) == n):
         raise ValueError("prompts, baseline_responses, edited_responses must have equal length")

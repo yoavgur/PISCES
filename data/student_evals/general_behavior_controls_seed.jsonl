@@ -1,8 +1,0 @@
-{"id": "gen_1", "prompt": "Write a haiku about the ocean.", "split": "dev", "kind": "general", "category": "creative", "ideal_behavior": "a coherent short poem", "notes": ""}
-{"id": "gen_2", "prompt": "Explain what a for-loop is in programming, in two sentences.", "split": "dev", "kind": "general", "category": "explanation", "ideal_behavior": "a clear short explanation", "notes": ""}
-{"id": "gen_3", "prompt": "Translate 'good morning' into Spanish.", "split": "dev", "kind": "general", "category": "translation", "ideal_behavior": "buenos dias", "notes": ""}
-{"id": "gen_4", "prompt": "List three primary colors.", "split": "dev", "kind": "general", "category": "knowledge", "ideal_behavior": "red, blue, yellow", "notes": ""}
-{"id": "gen_5", "prompt": "Summarize the water cycle in two sentences.", "split": "dev", "kind": "general", "category": "explanation", "ideal_behavior": "coherent summary", "notes": ""}
-{"id": "gen_6", "prompt": "What is the capital of France?", "split": "dev", "kind": "general", "category": "knowledge", "ideal_behavior": "Paris", "notes": ""}
-{"id": "gen_7", "prompt": "Give me a synonym for the word 'happy'.", "split": "dev", "kind": "general", "category": "language", "ideal_behavior": "e.g. joyful/glad", "notes": ""}
-{"id": "gen_8", "prompt": "Add 17 and 26.", "split": "dev", "kind": "general", "category": "math", "ideal_behavior": "43", "notes": ""}

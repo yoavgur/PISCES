@@ -1,13 +1,13 @@
 """Feature search: VocabProj catalog (pre-built), token search (reuse), and
 CRISP-style contrastive search.
 
-Pure helpers (default_contrastive_selection, _format_candidates) import only
-pandas. Model/SAE-dependent functions import torch / editor / feature_finder
-lazily and run on the GPU box.
+The pure helper (_format_candidates) imports only pandas. Model/SAE-dependent
+functions import torch / editor / feature_finder lazily and run on the GPU box.
 
 Reference: Ashuach et al. (2026), CRISP (arXiv:2508.13650). We use CRISP-style
-feature SELECTION (Eq 4 Delta-phi, Eq 6 rho, Eq 7-8) but PISCES-style
-SUPPRESSION (editor.unlearn_concept), on MLP-output SAEs.
+feature SELECTION but PISCES-style SUPPRESSION (editor.unlearn_concept), on
+MLP-output SAEs. The contrastive ranking itself (select_fn) is left for you to
+implement from the paper -- see find_contrastive_features.
 """
 import pickle
 from collections import namedtuple
@@ -22,66 +22,56 @@ CANDIDATE_COLUMNS = ["layer", "feature_id", "sign", "score",
                      "source_method", "notes"]
 
 
-# --------------------------- pure: ranking + formatting ---------------------------
+# --------------------------- pure: candidate formatting ---------------------------
 
-def default_contrastive_selection(merged, top_k=100, tau=2.0, eps=1e-6):
-    """CRISP-style selection. STUDENT TODO: this is the reference recipe; improve it.
+def _format_candidates(selected, catalog, source_method, tokens=None, top_k_tokens=10):
+    """Build the standard candidate DataFrame, attaching readable tokens per feature.
 
-    merged: one row per (layer, feature_id) with columns
-        firing_count_target, firing_count_control, sum_act_target, sum_act_control.
-    Returns the selected rows with added delta_phi, rho, score, sign(=-1, suppress).
+    `selected` has one row per (layer, feature_id) with at least those two
+    columns, plus optional 'sign', 'score', and -- for contrastive search --
+    'frac_firing_target'/'frac_firing_control'. The row INDEX of `selected` is
+    ignored, so a student's custom select_fn may return arbitrarily-indexed rows
+    without breaking this function.
+
+    For each feature we look up its top/bottom VocabProj tokens from `catalog`
+    (a list indexed by layer; see build_feature_catalog). `matched_tokens` is the
+    subset of `tokens` that appears anywhere in the feature's FULL top OR bottom
+    list -- so it stays accurate even though the displayed top_tokens/bottom_tokens
+    are truncated to `top_k_tokens` for readability.
+
+    Returns a DataFrame with CANDIDATE_COLUMNS, plus frac_firing_target/control
+    when those columns are present in `selected`.
     """
-    df = merged.copy()
-    df["delta_phi"] = df["firing_count_target"] - df["firing_count_control"]          # CRISP Eq 4
-    df["rho"] = df["sum_act_target"] / (df["sum_act_control"] + eps)                  # CRISP Eq 6
-    df = df.sort_values("delta_phi", ascending=False).head(top_k)                     # CRISP Eq 7
-    df = df[df["rho"] >= tau].copy()                                                  # CRISP Eq 8
-    df["score"] = df["delta_phi"]
-    df["sign"] = -1                                                                   # fires more on target => suppress
-    return df.reset_index(drop=True)
+    has_firing = ("frac_firing_target" in selected.columns
+                  and "frac_firing_control" in selected.columns)
+    token_set = set(tokens) if tokens else set()
 
-
-def _format_candidates(selected, catalog, source_method, tokens=None, top_k_tokens=20):
-    """Build the standard candidate DataFrame, pulling readable tokens from the catalog.
-
-    If selected contains frac_firing_target and frac_firing_control columns, they are
-    appended to the output (for contrastive search). Otherwise, only CANDIDATE_COLUMNS.
-    """
     rows = []
-    firing_cols = {}  # collect firing columns if present
-    has_firing_target = "frac_firing_target" in selected.columns
-    has_firing_control = "frac_firing_control" in selected.columns
-
-    for idx, r in selected.iterrows():
+    frac_target, frac_control = [], []
+    for _, r in selected.iterrows():
         layer = int(r["layer"]); fid = int(r["feature_id"])
-        top, bot = [], []
+        top_full, bot_full = [], []
         if catalog is not None and layer < len(catalog) and catalog[layer] is not None:
-            top = list(catalog[layer].t[fid][:top_k_tokens])
-            bot = list(catalog[layer].b[fid][:top_k_tokens])
-        matched = sorted(set(top) & set(tokens)) if tokens else []
+            top_full = list(catalog[layer].t[fid])
+            bot_full = list(catalog[layer].b[fid])
+        matched = sorted(token_set & (set(top_full) | set(bot_full))) if token_set else []
         rows.append({
             "layer": layer, "feature_id": fid,
             "sign": int(r.get("sign", -1)),
             "score": r.get("score", None),
-            "top_tokens": top, "bottom_tokens": bot,
+            "top_tokens": top_full[:top_k_tokens],
+            "bottom_tokens": bot_full[:top_k_tokens],
             "matched_tokens": matched,
             "source_method": source_method, "notes": "",
         })
-
-        # Collect firing columns if both are present
-        if has_firing_target and has_firing_control:
-            firing_cols[idx] = {
-                "frac_firing_target": r.get("frac_firing_target"),
-                "frac_firing_control": r.get("frac_firing_control"),
-            }
+        if has_firing:
+            frac_target.append(r.get("frac_firing_target"))
+            frac_control.append(r.get("frac_firing_control"))
 
     df = pd.DataFrame(rows, columns=CANDIDATE_COLUMNS)
-
-    # Append firing columns if they were present in selected
-    if has_firing_target and has_firing_control:
-        df["frac_firing_target"] = [firing_cols[i]["frac_firing_target"] for i in range(len(df))]
-        df["frac_firing_control"] = [firing_cols[i]["frac_firing_control"] for i in range(len(df))]
-
+    if has_firing:
+        df["frac_firing_target"] = frac_target
+        df["frac_firing_control"] = frac_control
     return df
 
 
@@ -147,7 +137,9 @@ def save_feature_catalog(catalog, path) -> None:
 
 
 def build_or_load_feature_catalog(model=None, path="features/vocab_proj_catalog_gemma2_2b_16k.pkl", **build_kwargs):
-    """Load the cached catalog if present; otherwise build it (model required) and cache."""
+    """Load the cached VocabProj catalog if present; otherwise build it (model
+    required) and cache it. Building scans all layers once and is the slow step,
+    so it is cached to disk and reused across notebooks."""
     path = Path(path)
     if path.exists():
         with path.open("rb") as f:
@@ -165,24 +157,40 @@ def build_or_load_feature_catalog(model=None, path="features/vocab_proj_catalog_
 # --------------------------- model-dependent: token + contrastive search ---------------------------
 
 def search_features_by_tokens(model, catalog, tokens, minmatch=1, layers=None, top_k=20):
-    """Reuse the repo's search_features over the VocabProj catalog; return candidates DataFrame.
+    """Find SAE features whose VocabProj tokens include your probe `tokens`.
 
-    STUDENT work: choose `tokens` (must each be single tokens) and judge candidates.
+    Wraps the repo's feature_finder.search_features over the pre-built `catalog`.
+    Each entry in `tokens` must be a SINGLE model token (usually with a leading
+    space, e.g. ' agree') -- otherwise search_features raises an assertion.
+
+    A feature is returned when at least `minmatch` of your tokens appear in its
+    top tokens (suggested sign -1, i.e. suppress) or in its bottom tokens
+    (sign +1). Returns a candidate DataFrame (see _format_candidates); the
+    'matched_tokens' column shows exactly which of your tokens hit each feature.
+
+    STUDENT work: choose `tokens` and judge which candidates are on-concept.
     """
+    import contextlib
+    import io
     from feature_finder import search_features
-    feats = search_features(model, catalog, tokens, minmatch=minmatch, layers=layers, verbose=False, k=top_k)
+    # search_features prints one line per hit even with verbose=False; swallow it.
+    with contextlib.redirect_stdout(io.StringIO()):
+        feats = search_features(model, catalog, tokens, minmatch=minmatch,
+                                layers=layers, verbose=False, k=top_k)
     selected = pd.DataFrame([
         {"layer": f.layer, "feature_id": f.id, "sign": -1 if f.neg else 1, "score": None}
         for f in feats
     ])
-    return _format_candidates(selected, catalog, "token", tokens=tokens, top_k_tokens=top_k)
+    return _format_candidates(selected, catalog, "token", tokens=tokens, top_k_tokens=10)
 
 
 def collect_sae_feature_activations(model, prompts, layers, size="16k", batch_size=4):
     """Run the model with MLP SAEs attached and aggregate per-feature activations.
 
-    Returns one row per (layer, feature_id): firing_count (phi), frac_firing,
-    sum_act (A), mean_act. (CRISP Eq 3/5.)
+    Returns one row per (layer, feature_id): firing_count (how many tokens the
+    feature fired on), frac_firing (that count / total tokens), sum_act (summed
+    activation), mean_act. These are the raw ingredients a contrastive ranking
+    compares between the target and control prompt sets.
     """
     import torch
     from editor import SAEConfig
@@ -225,14 +233,30 @@ def collect_sae_feature_activations(model, prompts, layers, size="16k", batch_si
 
 def find_contrastive_features(target_prompts, control_prompts, model, *, layers="all",
                               size="16k", top_k=100, catalog=None, select_fn=None):
-    """CRISP-style contrastive feature search feeding PISCES.
+    """CRISP-style contrastive feature search feeding a PISCES suppression edit.
 
-    Pre-built: collects activations for both prompt sets, merges them. The
-    ranking/selection is `select_fn` (defaults to default_contrastive_selection).
-    STUDENT TODO in the notebook: pass your own select_fn.
+    Runs the model with MLP SAEs over `target_prompts` (behaviour present) and
+    `control_prompts` (behaviour absent), aggregates per-feature activations with
+    collect_sae_feature_activations, and merges them into one row per
+    (layer, feature_id). The merged DataFrame has, for each side, the columns
+    firing_count_*, frac_firing_*, sum_act_*, mean_act_* (suffixes _target /
+    _control).
+
+    YOU must provide `select_fn(merged) -> DataFrame`: the contrastive ranking
+    that decides which features to suppress. It should return the chosen rows with
+    at least 'layer' and 'feature_id' (and normally 'sign' = -1, suppress). Read
+    the CRISP paper for the idea (Ashuach et al. 2026, arXiv:2508.13650): compare
+    how much each feature fires on target vs control, then keep the features that
+    are both target-specific and strongly activated. Implement it yourself.
+
+    Returns a candidate DataFrame; if your select_fn keeps the frac_firing_*
+    columns they are carried through so you can plot target-vs-control firing.
     """
     if select_fn is None:
-        select_fn = default_contrastive_selection
+        raise ValueError(
+            "find_contrastive_features requires select_fn. Write your own contrastive "
+            "ranking (CRISP, arXiv:2508.13650) and pass it as select_fn=your_function."
+        )
     t = collect_sae_feature_activations(model, target_prompts, layers, size)
     c = collect_sae_feature_activations(model, control_prompts, layers, size)
     merged = t.merge(c, on=["layer", "feature_id"], suffixes=("_target", "_control"))

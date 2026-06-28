@@ -1,29 +1,6 @@
 import pandas as pd
+import pytest
 from student_utils import feature_search as fs
-
-
-def _merged():
-    # 3 features; feature (0,1) is the clear "target" feature
-    return pd.DataFrame([
-        {"layer": 0, "feature_id": 0, "firing_count_target": 5,  "firing_count_control": 4,  "sum_act_target": 1.0, "sum_act_control": 1.0},
-        {"layer": 0, "feature_id": 1, "firing_count_target": 90, "firing_count_control": 2,  "sum_act_target": 50.0, "sum_act_control": 1.0},
-        {"layer": 0, "feature_id": 2, "firing_count_target": 10, "firing_count_control": 9,  "sum_act_target": 2.0, "sum_act_control": 8.0},
-    ])
-
-
-def test_selection_picks_target_feature_and_signs():
-    out = fs.default_contrastive_selection(_merged(), top_k=2, tau=2.0)
-    # feature (0,1): delta_phi=88, rho=50 -> selected; sign suppress
-    top = out.iloc[0]
-    assert int(top["layer"]) == 0 and int(top["feature_id"]) == 1
-    assert (out["sign"] == -1).all()
-    assert "delta_phi" in out.columns and "rho" in out.columns
-
-
-def test_selection_rho_filter_drops_low_ratio():
-    # feature (0,2) has high-ish delta_phi rank but rho = 2/8 < tau -> dropped
-    out = fs.default_contrastive_selection(_merged(), top_k=3, tau=2.0)
-    assert not ((out["layer"] == 0) & (out["feature_id"] == 2)).any()
 
 
 def test_format_candidates_pulls_tokens_from_catalog():
@@ -31,9 +8,7 @@ def test_format_candidates_pulls_tokens_from_catalog():
     selected = pd.DataFrame([{"layer": 0, "feature_id": 1, "score": 88, "sign": -1}])
     out = fs._format_candidates(selected, catalog, "contrastive")
     row = out.iloc[0]
-    assert list(out.columns) == ["layer", "feature_id", "sign", "score",
-                                 "top_tokens", "bottom_tokens", "matched_tokens",
-                                 "source_method", "notes"]
+    assert list(out.columns) == fs.CANDIDATE_COLUMNS
     assert row["top_tokens"] == ["agree", "yes"]
     assert row["source_method"] == "contrastive"
 
@@ -45,7 +20,6 @@ def test_format_candidates_without_catalog_is_empty_tokens():
 
 
 def test_format_candidates_carries_frac_firing_when_present():
-    """Contrastive candidates should include frac_firing_target/control if present."""
     catalog = [fs.LayerLens(t=[["x"], ["agree", "yes"], ["z"]], b=[["no"], ["disagree"], ["w"]])]
     selected = pd.DataFrame([
         {"layer": 0, "feature_id": 1, "score": 88, "sign": -1,
@@ -53,18 +27,50 @@ def test_format_candidates_carries_frac_firing_when_present():
     ])
     out = fs._format_candidates(selected, catalog, "contrastive")
     row = out.iloc[0]
-    # Should have both firing columns
-    assert "frac_firing_target" in out.columns
-    assert "frac_firing_control" in out.columns
-    assert row["frac_firing_target"] == 0.5
-    assert row["frac_firing_control"] == 0.1
+    assert "frac_firing_target" in out.columns and "frac_firing_control" in out.columns
+    assert row["frac_firing_target"] == 0.5 and row["frac_firing_control"] == 0.1
 
 
 def test_format_candidates_no_firing_columns_when_absent():
-    """Non-contrastive candidates (token search) should not have firing columns."""
     selected = pd.DataFrame([{"layer": 2, "feature_id": 7, "score": 1, "sign": -1}])
     out = fs._format_candidates(selected, None, "token")
-    # Should have exactly CANDIDATE_COLUMNS, no firing columns
     assert list(out.columns) == fs.CANDIDATE_COLUMNS
     assert "frac_firing_target" not in out.columns
-    assert "frac_firing_control" not in out.columns
+
+
+def test_format_candidates_handles_nonrange_index():
+    """Regression: a custom select_fn that does NOT reset_index returns rows with
+    an arbitrary index. _format_candidates must still work (previously raised
+    KeyError: 0 -- the cell-14 crash)."""
+    catalog = [fs.LayerLens(t=[["x"], ["agree"], ["z"]], b=[["no"], ["dis"], ["w"]])]
+    selected = pd.DataFrame(
+        [{"layer": 0, "feature_id": 1, "score": 88, "sign": -1,
+          "frac_firing_target": 0.5, "frac_firing_control": 0.1},
+         {"layer": 0, "feature_id": 2, "score": 10, "sign": -1,
+          "frac_firing_target": 0.3, "frac_firing_control": 0.2}],
+        index=[5, 9],   # non-RangeIndex, as a contrastive select_fn would return
+    )
+    out = fs._format_candidates(selected, catalog, "contrastive")
+    assert len(out) == 2
+    assert list(out["frac_firing_target"]) == [0.5, 0.3]
+    assert list(out["frac_firing_control"]) == [0.1, 0.2]
+
+
+def test_matched_tokens_uses_full_lists_not_truncated_display():
+    """matched_tokens must reflect the full top OR bottom lists, even when the hit
+    is on the bottom side and beyond the truncated display window."""
+    catalog = [fs.LayerLens(
+        t=[["a", "b", "c", "TOP_HIT"]],     # TOP_HIT beyond a small display cut
+        b=[["x", "BOTTOM_HIT"]],
+    )]
+    selected = pd.DataFrame([{"layer": 0, "feature_id": 0, "sign": -1, "score": 1}])
+    out = fs._format_candidates(selected, catalog, "token",
+                                tokens=["TOP_HIT", "BOTTOM_HIT", "nope"], top_k_tokens=2)
+    row = out.iloc[0]
+    assert set(row["matched_tokens"]) == {"TOP_HIT", "BOTTOM_HIT"}
+    assert row["top_tokens"] == ["a", "b"]   # display truncated to 2
+
+
+def test_find_contrastive_features_requires_select_fn():
+    with pytest.raises(ValueError, match="select_fn"):
+        fs.find_contrastive_features(["t"], ["c"], model=None, select_fn=None)

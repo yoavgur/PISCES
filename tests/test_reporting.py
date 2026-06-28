@@ -1,30 +1,28 @@
-import json
 import pandas as pd
+import pytest
 from student_utils import reporting as rep
 
 
-def test_make_run_dir_autoincrements(tmp_path):
-    base = tmp_path / "runs"
-    d1 = rep.make_run_dir(base_dir=base)
-    d2 = rep.make_run_dir(base_dir=base)
-    assert d1.name == "run_001" and d2.name == "run_002"
-    assert d1.is_dir() and d2.is_dir()
+def test_plot_tradeoff_returns_axes():
+    mpl = pytest.importorskip("matplotlib")
+    mpl.use("Agg")  # headless backend
+    df = pd.DataFrame([{"target_bad": 0.2, "general_coherent": 0.9},
+                       {"target_bad": 0.5, "general_coherent": 0.95}])
+    ax = rep.plot_tradeoff(df, "target_bad", "general_coherent")
+    assert ax.get_xlabel() == "target_bad"
+    assert ax.get_ylabel() == "general_coherent"
 
 
-def test_make_run_dir_named(tmp_path):
-    d = rep.make_run_dir(base_dir=tmp_path / "runs", run_name="gaia_v1")
-    assert d.name == "gaia_v1" and d.is_dir()
+def test_plot_contrastive_scatter_returns_axes():
+    mpl = pytest.importorskip("matplotlib")
+    mpl.use("Agg")
+    df = pd.DataFrame([{"frac_firing_control": 0.1, "frac_firing_target": 0.5},
+                       {"frac_firing_control": 0.2, "frac_firing_target": 0.3}])
+    ax = rep.plot_contrastive_scatter(df)
+    assert ax is not None
 
 
-def test_save_run_metadata(tmp_path):
-    d = rep.make_run_dir(base_dir=tmp_path / "runs", run_name="r")
-    rep.save_run_metadata(d, {"tau": 0.9, "mu": 8.0})
-    assert json.loads((d / "metadata.json").read_text())["tau"] == 0.9
-
-
-def test_save_tables(tmp_path):
-    d = rep.make_run_dir(base_dir=tmp_path / "runs", run_name="r")
-    rep.save_before_after_table(d, pd.DataFrame([{"id": "1", "baseline_response": "a", "edited_response": "b"}]))
-    rep.save_score_summary(d, pd.DataFrame([{"kind": "target", "target_bad_behavior": 0.5}]))
-    assert (d / "before_after.csv").exists()
-    assert (d / "score_summary.csv").exists()
+def test_display_helpers_do_not_crash():
+    df = pd.DataFrame([{"a": 1, "b": 2}])
+    rep.display_before_after(df)
+    rep.display_feature_table(df)

@@ -1,4 +1,3 @@
-import json
 import pytest
 from student_utils import pisces_adapter as pa
 
@@ -33,13 +32,6 @@ def test_validate_requires_features_list():
 def test_sign_to_neg_mapping():
     assert pa.feature_dict_to_args({"layer": 1, "feature_id": 2, "sign": -1}) == (1, 2, True)
     assert pa.feature_dict_to_args({"layer": 3, "feature_id": 4, "sign": 1}) == (3, 4, False)
-
-
-def test_round_trip(tmp_path):
-    fs = _fs([{"layer": 1, "feature_id": 2, "sign": -1, "why": "x"}])
-    path = tmp_path / "fs.json"
-    pa.save_feature_set(fs, path)
-    assert pa.load_feature_set(path) == fs
 
 
 def test_random_feature_set_like_is_deterministic_and_in_range():

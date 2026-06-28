@@ -1,28 +1,20 @@
 # Student notebooks
 
 Run order:
-1. `00_intro_and_sanity_edit.ipynb` — load the model, see baseline answers, run the Harry Potter sanity edit, and read the helpers.
-2. `gaia/01` or `itay/01` — manual prompt exploration + manual labels.
-3. `02` — dataset-based eval (improve the scorer; add target/control rows).
-4. `03` — feature search → PISCES edit → eval loop (token search, random-feature control, CRISP-style contrastive search, tau/mu sweep).
+1. `00_intro_and_sanity_edit.ipynb` — load the model, see baseline answers, run the Harry Potter sanity edit (given), and read the helpers.
+2. `gaia/01_sycophancy_baseline.ipynb` or `itay/01_reliability_baseline.ipynb` — get a feel for the behavior with a few hand-written prompts, **find and load a real dataset yourself**, write a scorer, and measure the baseline.
+3. `gaia/02_sycophancy_feature_search_and_edit.ipynb` or `itay/02_...` — feature search → PISCES edit → eval loop: token search, random-feature control, CRISP-style contrastive search (you write the ranking), and a tau/mu sweep.
 
-Where things are:
-- Helpers: `student_utils/`. Seeds: `data/student_evals/`. Feature sets: `features/student_feature_sets/`.
-- Outputs are saved under `runs/student_experiments/<run_name>/` (gitignored).
+Everything lives **in the notebook**: there are no data files to load and no output directories — your prompts, datasets, scorers, and feature sets are written in cells, and results stay as cell outputs.
 
-`STUDENT TODO` marks the parts you work on (scorers, prompts/tokens, feature selection, sweeps).
+`STUDENT TODO` marks the parts you write. Stubs are `raise NotImplementedError` (functions) or empty lists (prompts/features) — they fail until you fill them in, on purpose.
 
-## What you edit vs. what you import
+## What you write vs. what you import
 
-You only ever edit **the notebook** (and the seed `.jsonl` files). Nothing in `student_utils/` or the
-PISCES core needs editing.
+You only ever edit **the notebook**. Nothing in `student_utils/` or the PISCES core needs editing.
 
-- **Edited by you — written inline in the notebooks:** the scorers (`score_sycophancy` /
-  `score_reliability` / `score_general_behavior`), the contrastive ranking (`my_selection`, the CRISP
-  Δφ/ρ recipe), and all prompts, search tokens, feature sets, edit configs, and sweep ranges.
-- **Imported, never edited:** the PISCES core (`editor.py`, `evals.py`, `feature_finder.py`) and the
-  `student_utils/` plumbing (model loading, generation, dataset IO, `apply_scorer`/`summarize_scores`,
-  feature-search machinery, the edit wrapper, reporting). Read them to understand them, but leave them as-is.
+- **Written by you, inline in the notebooks:** the scorers (`score_sycophancy` / `score_reliability` and a `score_general_behavior` breakage check), the contrastive ranking (`my_selection`), and all prompts, the dataset loading, search tokens, feature sets, edit configs, and sweep ranges.
+- **Imported, never edited:** the PISCES core (`editor.py`, `evals.py`, `feature_finder.py`) and the `student_utils/` plumbing (model loading, generation, `make_eval_dataframe`/`dataset_to_prompts`, `apply_scorer`/`summarize_scores`, feature-search machinery, the edit wrapper, plots). Every helper has a docstring — read them to understand what they do.
 
 Edits auto-revert: `temporary_pisces_edit(...)` restores the weights when the `with` block ends — edits do **not** accumulate across cells. If a cell errors *inside* a `with` block, just re-run the load-model cell to be safe.
 
